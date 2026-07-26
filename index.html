@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="sl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>BATTY — retro block breaker</title>
+<style>
+  html,body{margin:0;height:100%;background:#02030a;overflow:hidden;
+    font-family:"Courier New",monospace;-webkit-user-select:none;user-select:none;
+    -webkit-tap-highlight-color:transparent;touch-action:none;color:#bcd0ff;}
+  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;}
+  #stage{position:relative;width:min(100vw,74vh);aspect-ratio:480/640;
+    box-shadow:0 0 60px rgba(60,120,255,.22),0 0 0 3px #141a33;
+    border-radius:10px;overflow:hidden;background:#02030a;touch-action:none;cursor:crosshair;}
+  canvas{position:absolute;inset:0;width:100%;height:100%;
+    image-rendering:pixelated;display:block;touch-action:none;}
+  #crt{position:absolute;inset:0;pointer-events:none;z-index:5;
+    background:
+      repeating-linear-gradient(0deg,rgba(0,0,0,.26) 0,rgba(0,0,0,.26) 1px,
+                                     rgba(0,0,0,0) 2px,rgba(0,0,0,0) 3px),
+      radial-gradient(120% 120% at 50% 50%,rgba(0,0,0,0) 55%,rgba(0,0,0,.55) 100%);
+    mix-blend-mode:multiply;}
+  /* corner soft-button hints for touch (drag anywhere to move) */
+  #hintbar{position:absolute;left:0;right:0;bottom:6px;z-index:6;pointer-events:none;
+    text-align:center;font-size:11px;color:rgba(150,180,255,.5);letter-spacing:1px;}
+  @media (hover:hover) and (pointer:fine){#hintbar{display:none;}}
+</style>
+</head>
+<body>
+<div id="wrap"><div id="stage">
+  <canvas id="c" width="480" height="640"></canvas>
+  <div id="crt"></div>
+  <div id="hintbar">DRSI za premik &middot; TAPNI za izstrelitev / laser</div>
+</div></div>
+<script>
+"use strict";
+const cv=document.getElementById('c'), X=cv.getContext('2d');
+const stage=document.getElementById('stage');
+const W=480,H=640,TAU=Math.PI*2;
+const WALL=14, HUD=46, FLOOR=H-8;
+
+/* ---------- palette (limited, retro) ---------- */
+const COL={
+  bg:'#02030a', wall:'#2b3566', wallHi:'#4a5da8',
+  R:'#ff3b3b', O:'#ff8a2b', Y:'#ffe23b', G:'#33d15a',
+  C:'#33e0e0', B:'#3b7dff', M:'#d24bff', W:'#e8eeff',
+  S:'#9aa6c8', X:'#c9a23b'
+};
+const BRICKCOLS={R:'R',O:'O',Y:'Y',G:'G',C:'C',B:'B',M:'M',W:'W'};
+
+/* ---------- i18n ---------- */
+const LANGS=['sl','en','de','it','fr'];
+const STR={
+  sl:{title:'BATTY',sub:'RUŠILEC BLOKOV',start:'TAPNI ali ENTER za start',
+      p1:'1 IGRALEC',p2:'2 IGRALCA (co-op)',mode:'ENTER=start · M=zvok · L=jezik · P=pavza',
+      score:'TOČKE',hi:'REKORD',lives:'ŽIVLJENJA',level:'NIVO',
+      over:'KONEC IGRE',win:'ČESTITKE!',winsub:'Premagal si vse nivoje',
+      again:'TAPNI za novo igro',ready:'TAPNI za izstrelitev žoge',
+      clear:'NIVO OČIŠČEN',p1w:'IGRALEC 1',p2w:'IGRALEC 2',paused:'PAVZA'},
+  en:{title:'BATTY',sub:'BLOCK BREAKER',start:'TAP or ENTER to start',
+      p1:'1 PLAYER',p2:'2 PLAYERS (co-op)',mode:'ENTER=start · M=sound · L=lang · P=pause',
+      score:'SCORE',hi:'HI',lives:'LIVES',level:'LEVEL',
+      over:'GAME OVER',win:'YOU WIN!',winsub:'All levels cleared',
+      again:'TAP to play again',ready:'TAP to launch the ball',
+      clear:'LEVEL CLEAR',p1w:'PLAYER 1',p2w:'PLAYER 2',paused:'PAUSED'},
+  de:{title:'BATTY',sub:'STEIN-BRECHER',start:'TAP oder ENTER zum Start',
+      p1:'1 SPIELER',p2:'2 SPIELER (co-op)',mode:'ENTER=Start · M=Ton · L=Sprache · P=Pause',
+      score:'PUNKTE',hi:'BEST',lives:'LEBEN',level:'LEVEL',
+      over:'SPIEL AUS',win:'GEWONNEN!',winsub:'Alle Level geschafft',
+      again:'TAP für neues Spiel',ready:'TAP zum Abschuss',
+      clear:'LEVEL FREI',p1w:'SPIELER 1',p2w:'SPIELER 2',paused:'PAUSE'},
+  it:{title:'BATTY',sub:'ROMPI BLOCCHI',start:'TAP o ENTER per iniziare',
+      p1:'1 GIOCATORE',p2:'2 GIOCATORI (co-op)',mode:'ENTER=start · M=audio · L=lingua · P=pausa',
+      score:'PUNTI',hi:'MAX',lives:'VITE',level:'LIVELLO',
+      over:'GAME OVER',win:'HAI VINTO!',winsub:'Tutti i livelli completati',
+      again:'TAP per rigiocare',ready:'TAP per lanciare',
+      clear:'LIVELLO PULITO',p1w:'GIOCATORE 1',p2w:'GIOCATORE 2',paused:'PAUSA'},
+  fr:{title:'BATTY',sub:'CASSE-BRIQUES',start:'TAP ou ENTER pour jouer',
+      p1:'1 JOUEUR',p2:'2 JOUEURS (co-op)',mode:'ENTER=start · M=son · L=langue · P=pause',
+      score:'SCORE',hi:'REC',lives:'VIES',level:'NIVEAU',
+      over:'PARTIE FINIE',win:'GAGNÉ !',winsub:'Tous les niveaux finis',
+      again:'TAP pour rejouer',ready:'TAP pour lancer',
+      clear:'NIVEAU FINI',p1w:'JOUEUR 1',p2w:'JOUEUR 2',paused:'PAUSE'}
+};
+function detectLang(){try{const l=(navigator.language||'en').slice(0,2).toLowerCase();
+  return LANGS.includes(l)?l:'en';}catch(e){return 'en';}}
+let lang=detectLang();
+function T(k){return (STR[lang]&&STR[lang][k])||STR.en[k]||k;}
+
+/* ---------- persistence ---------- */
+function safeLS(k,v){try{if(v===undefined)return localStorage.getItem(k);
+  localStorage.setItem(k,v);}catch(e){return null;}}
+let hi=parseInt(safeLS('batty_hi')||'0',10)||0;
+
+/* ---------- audio ---------- */
+let AC=null, muted=false;
+function ac(){if(!AC){try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){}}
+  if(AC&&AC.state==='suspended'){try{AC.resume();}catch(e){}}return AC;}
+function beep(freq,dur,type,vol){if(muted)return;const a=ac();if(!a)return;
+  const o=a.createOscillator(),g=a.createGain();
+  o.type=type||'square';o.frequency.value=freq;const t=a.currentTime;
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.exponentialRampToValueAtTime(vol||0.05,t+0.005);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+(dur||0.08));
+  o.connect(g);g.connect(a.destination);o.start(t);o.stop(t+(dur||0.08)+0.02);}
+const sfx={
+  bounce:()=>beep(520,0.05,'square',0.04),
+  brick: ()=>beep(320,0.05,'square',0.05),
+  hard:  ()=>beep(160,0.06,'sawtooth',0.05),
+  bat:   ()=>beep(660,0.04,'square',0.045),
+  power: ()=>{beep(700,0.06,'square',0.05);setTimeout(()=>beep(1040,0.08,'square',0.05),60);},
+  laser: ()=>beep(900,0.05,'sawtooth',0.035),
+  alien: ()=>{beep(140,0.1,'sawtooth',0.05);setTimeout(()=>beep(90,0.14,'sawtooth',0.045),70);},
+  die:   ()=>[440,330,247,196].forEach((f,i)=>setTimeout(()=>beep(f,0.2,'triangle',0.06),i*150)),
+  clear: ()=>[523,659,784,1046].forEach((f,i)=>setTimeout(()=>beep(f,0.12,'square',0.05),i*90)),
+  life:  ()=>[784,1046].forEach((f,i)=>setTimeout(()=>beep(f,0.1,'square',0.05),i*100)),
+  start: ()=>[392,523,659].forEach((f,i)=>setTimeout(()=>beep(f,0.1,'square',0.05),i*80))
+};
+
+/* ---------- levels ---------- 11 columns wide
+   R O Y G C B M W = colored (1 hit)   S = silver (multi)   X = gold (indestructible)
+   . = empty */
+const LEVELS=[
+ ["RRRRRRRRRRR",
+  "OOOOOOOOOOO",
+  "YYYYYYYYYYY",
+  "GGGGGGGGGGG",
+  "CCCCCCCCCCC",
+  "BBBBBBBBBBB"],
+
+ ["X.X.X.X.X.X",
+  ".R.R.R.R.R.",
+  "OYOYOYOYOYO",
+  "..GGGGGGG..",
+  "MMMMMMMMMMM",
+  "SSS.....SSS"],
+
+ ["....S....",
+  "...SSS...",
+  "..SMSMS..",
+  ".SRRWRRS.",
+  "SYYYYYYYS",
+  "XGGGGGGGX",
+  "CCCCCCCCC"].map(r=>r.padStart(10,'.').padEnd(11,'.')),
+
+ ["XSXSXSXSXSX",
+  "S.S.S.S.S.S",
+  "RRR.W.OOO.M",
+  "M.OOO.W.RRR",
+  "S.S.S.S.S.S",
+  "GGGGGGGGGGG",
+  "CCC.CCC.CCC"],
+
+ ["W.W.W.W.W.W",
+  "RRRRRRRRRRR",
+  "OOO.SSS.OOO",
+  "YY.XXXXX.YY",
+  "GGG.SSS.GGG",
+  "BBBBBBBBBBB",
+  "MMM.MMM.MMM",
+  "CCCCCCCCCCC"]
+];
+const COLS=11;
+const cellW=(W-2*WALL)/COLS;      // ~41.09
+const brickH=20, brickTop=HUD+18;
+
+/* ---------- state ---------- */
+let last=0, perf=0, state='title';
+let players=1;                 // 1 or 2
+let level=0, score=0, lives=3, shake=0, inputLock=0, flashMsg=0;
+let winnerText='';
+let bricks=[], balls=[], bats=[], caps=[], aliens=[], bombs=[], shots=[], parts=[];
+let alienTimer=0, breakables=0, clearTimer=0;
+
+/* ---------- entities ---------- */
+function makeBat(side){
+  // side: 'full' | 'left' | 'right'
+  let lo=WALL, hi=W-WALL;
+  if(side==='left'){lo=WALL; hi=W/2;}
+  if(side==='right'){lo=W/2; hi=W-WALL;}
+  return {side,lo,hi,w:70,baseW:70,h:14,x:(lo+hi)/2,y:H-40,
+          target:(lo+hi)/2,speed:520,
+          expand:0,laser:0,catch:0,cool:0,stun:0,invul:1.4,color:side==='right'?'#ff9a4b':'#4a9dff'};
+}
+function resetBats(){ bats=[makeBat('full')]; }
+function primaryBat(){return bats[0];}
+
+function newBall(x,y,vx,vy){
+  return {x,y,vx,vy,r:5,stuck:false,batIndex:-1,offset:0,smash:0,speed:Math.hypot(vx,vy)||baseSpeed()};
+}
+function baseSpeed(){return 250+level*18;}
+
+function serveBall(){
+  balls=[];
+  const b=primaryBat();
+  const ball=newBall(b.x,b.y-12,0,0);
+  ball.stuck=true; ball.batIndex=0; ball.offset=0;
+  balls.push(ball);
+}
+
+/* ---------- level build ---------- */
+function buildLevel(){
+  bricks=[]; caps=[]; aliens=[]; bombs=[]; shots=[]; parts=[];
+  const map=LEVELS[level%LEVELS.length];
+  breakables=0;
+  for(let r=0;r<map.length;r++){
+    const row=map[r];
+    for(let c=0;c<COLS;c++){
+      const ch=row[c]||'.';
+      if(ch==='.'||ch===' ')continue;
+      let hp=1, kind='color', col=COL[ch]||'#888';
+      if(ch==='S'){hp=2+Math.floor(level/2); kind='silver'; col=COL.S;}
+      else if(ch==='X'){hp=Infinity; kind='gold'; col=COL.X;}
+      if(kind!=='gold')breakables++;
+      bricks.push({c,r,ch,kind,hp,maxhp:hp,col,
+        x:WALL+c*cellW, y:brickTop+r*brickH, w:cellW, h:brickH, flash:0, alive:true});
+    }
+  }
+}
+
+/* ---------- game flow ---------- */
+function startGame(){
+  level=0; score=0; lives=3; state='play';
+  winnerText='';
+  resetBats(); buildLevel(); serveBall();
+  flashMsg=0; inputLock=0.3; sfx.start();
+}
+function nextLevel(){
+  level++;
+  if(level>=LEVELS.length){ state='win'; sfx.clear();
+    if(score>hi){hi=score;safeLS('batty_hi',String(hi));}
+    inputLock=0.8; return;}
+  state='clear'; clearTimer=1.6; sfx.clear();
+}
+function beginNextAfterClear(){
+  resetBats(); buildLevel(); serveBall(); state='play'; inputLock=0.3;
+}
+function loseLife(){
+  lives--; sfx.die(); shake=14;
+  for(let i=0;i<24;i++)parts.push(spark(primaryBat().x,primaryBat().y,'#4a9dff'));
+  if(lives<=0){
+    state='over';
+    if(score>hi){hi=score;safeLS('batty_hi',String(hi));}
+    inputLock=0.8;
+  }else{
+    // reset bats power, serve again
+    bats.forEach(b=>{b.expand=0;b.laser=0;b.catch=0;b.w=b.baseW;b.invul=1.6;});
+    caps=[]; bombs=[]; shots=[];
+    serveBall();
+  }
+}
+
+/* ---------- particles ---------- */
+function spark(x,y,col){return {x,y,vx:(Math.random()*2-1)*140,vy:(Math.random()*2-1)*140-40,
+  life:0.5+Math.random()*0.4,age:0,col};}
+function burst(x,y,col,n){for(let i=0;i<(n||8);i++)parts.push(spark(x,y,col));}
+
+/* ---------- capsules ---------- */
+const CAPS=[
+  {t:'E',col:COL.B,p:16},  // expand
+  {t:'C',col:COL.G,p:12},  // catch
+  {t:'S',col:COL.O,p:12},  // slow
+  {t:'L',col:COL.R,p:14},  // laser
+  {t:'D',col:COL.C,p:12},  // disrupt (multiball)
+  {t:'P',col:COL.M,p:8},   // penetrate
+  {t:'R',col:COL.W,p:5},   // rocket -> next level
+  {t:'K',col:COL.S,p:8},   // kill aliens
+  {t:'1',col:'#ff7ec4',p:5}, // extra life
+  {t:'$',col:COL.Y,p:8}    // 5000 pts
+];
+function maybeDropCap(x,y){
+  if(Math.random()<0.22 && caps.length<3){
+    let tot=0; CAPS.forEach(c=>tot+=c.p); let r=Math.random()*tot, pick=CAPS[0];
+    for(const c of CAPS){r-=c.p; if(r<=0){pick=c;break;}}
+    caps.push({x,y,vy:120,t:pick.t,col:pick.col,w:30,h:16,spin:0});
+  }
+}
+function applyCap(t,bat){
+  sfx.power();
+  switch(t){
+    case 'E': bat.expand=1; bat.w=Math.min(120,bat.baseW+46); break;
+    case 'C': bat.catch=1; break;
+    case 'L': bat.laser=1; break;
+    case 'S': balls.forEach(b=>{const s=Math.hypot(b.vx,b.vy)||1;const ns=Math.max(150,s*0.62);
+              b.vx=b.vx/s*ns;b.vy=b.vy/s*ns;b.speed=ns;}); break;
+    case 'P': balls.forEach(b=>b.smash=6); break;
+    case 'D': { // triple ball
+        const src=balls.filter(b=>!b.stuck);
+        const base=src.length?src:balls;
+        base.slice(0,2).forEach(b=>{
+          const s=Math.hypot(b.vx,b.vy)||baseSpeed();
+          for(const a of [-0.4,0.4]){
+            const ang=Math.atan2(b.vy,b.vx)+a;
+            balls.push(newBall(b.x,b.y,Math.cos(ang)*s,Math.sin(ang)*s));
+          }
+        });
+        if(balls.length && balls.every(b=>b.stuck)){ launchAll(); }
+      } break;
+    case 'R': score+=200; nextLevel(); break;
+    case 'K': aliens.forEach(a=>{burst(a.x,a.y,'#9f6bff',10);score+=120;}); aliens=[]; bombs=[]; break;
+    case '1': lives++; sfx.life(); break;
+    case '$': score+=5000; break;
+  }
+}
+
+/* ---------- aliens ---------- */
+function spawnAlien(){
+  const x=WALL+30+Math.random()*(W-2*WALL-60);
+  aliens.push({x,y:brickTop-10,vx:(Math.random()<0.5?-1:1)*40,vy:34,
+    t:Math.random()*TAU,drop:1+Math.random()*2,hp:1,r:14});
+  sfx.alien();
+}
+
+/* ---------- launch stuck balls ---------- */
+function launchAll(){
+  let launched=false;
+  balls.forEach(b=>{
+    if(b.stuck){
+      const spd=baseSpeed();
+      const ang=-Math.PI/2 + (Math.random()*0.5-0.25);
+      b.vx=Math.cos(ang)*spd; b.vy=Math.sin(ang)*spd; b.speed=spd;
+      b.stuck=false; b.batIndex=-1; launched=true;
+    }
+  });
+  if(launched)sfx.bat();
+  return launched;
+}
+function fireLasers(){
+  let fired=false;
+  bats.forEach(b=>{
+    if(b.laser&&b.cool<=0){
+      shots.push({x:b.x-b.w*0.32,y:b.y-8,vy:-620});
+      shots.push({x:b.x+b.w*0.32,y:b.y-8,vy:-620});
+      b.cool=0.22; fired=true;
+    }
+  });
+  if(fired)sfx.laser();
+  return fired;
+}
+
+/* ---------- primary action (tap / space) ---------- */
+function action(){
+  if(inputLock>0)return;
+  if(state==='title'){startGame();return;}
+  if(state==='over'||state==='win'){state='title';inputLock=0.3;return;}
+  if(state==='play'){
+    let did=launchAll();
+    // release caught balls
+    balls.forEach(b=>{if(b.stuck===false&&b.batIndex>=0){}});
+    balls.forEach(b=>{if(b.heldCatch){b.heldCatch=false;const spd=b.speed||baseSpeed();
+      const ang=-Math.PI/2+(Math.random()*0.4-0.2);b.vx=Math.cos(ang)*spd;b.vy=Math.sin(ang)*spd;did=true;}});
+    if(!did)fireLasers();
+  }
+}
+
+/* ---------- input ---------- */
+const keys={};
+addEventListener('keydown',e=>{
+  const k=e.key;
+  if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',' '].includes(k))e.preventDefault();
+  if(k==='a'||k==='A')keys.p1l=true;
+  else if(k==='d'||k==='D')keys.p1r=true;
+  else if(k==='ArrowLeft')keys.arrL=true;
+  else if(k==='ArrowRight')keys.arrR=true;
+  if(e.repeat)return;
+  if(k==='Enter'){ac();if(state==='play')action();else action();}
+  else if(k===' '||k==='ArrowUp'){ac();action();}
+  else if(k==='p'||k==='P'){ if(state==='play')state='pause'; else if(state==='pause')state='play'; }
+  else if(k==='m'||k==='M'){muted=!muted;}
+  else if(k==='l'||k==='L'){lang=LANGS[(LANGS.indexOf(lang)+1)%LANGS.length];}
+});
+addEventListener('keyup',e=>{
+  const k=e.key;
+  if(k==='a'||k==='A')keys.p1l=false;
+  else if(k==='d'||k==='D')keys.p1r=false;
+  else if(k==='ArrowLeft')keys.arrL=false;
+  else if(k==='ArrowRight')keys.arrR=false;
+});
+
+/* pointer drag control */
+let pointers={};
+function canvasX(clientX){const r=stage.getBoundingClientRect();return (clientX-r.left)/r.width*W;}
+function moveBatTo(x){ if(bats[0])bats[0].target=x; }
+function pointerMove(id,cx){
+  const x=canvasX(cx);
+  moveBatTo(x);
+  const p=pointers[id];
+  if(p){ if(Math.abs(x-p.downX)>10)p.moved++; p.x=x; }   // keep down/downX intact
+}
+stage.addEventListener('touchstart',e=>{e.preventDefault();ac();
+  for(const t of e.changedTouches){const x=canvasX(t.clientX);
+    pointers[t.identifier]={x,downX:x,moved:0,down:perf};moveBatTo(x);}
+},{passive:false});
+stage.addEventListener('touchmove',e=>{e.preventDefault();
+  for(const t of e.changedTouches)pointerMove(t.identifier,t.clientX);
+},{passive:false});
+stage.addEventListener('touchend',e=>{e.preventDefault();ac();
+  let acted=false;
+  for(const t of e.changedTouches){const p=pointers[t.identifier];
+    // a short touch that didn't wander is a tap → launch / start / fire
+    if(!acted && p && (perf-p.down)<350 && p.moved<3){ action(); acted=true; }
+    delete pointers[t.identifier];}
+},{passive:false});
+stage.addEventListener('touchcancel',e=>{for(const t of e.changedTouches)delete pointers[t.identifier];},{passive:false});
+
+let mouseDown=false, mDownAt=0, mMoved=0;
+stage.addEventListener('mousedown',e=>{ac();mouseDown=true;mDownAt=perf;mMoved=0;pointerMove('m',e.clientX);});
+stage.addEventListener('mousemove',e=>{if(mouseDown){mMoved++;pointerMove('m',e.clientX);}});
+addEventListener('mouseup',e=>{if(mouseDown){mouseDown=false;if((perf-mDownAt)<250&&mMoved<4)action();}});
+
+/* ---------- update ---------- */
+function update(dt){
+  perf+=dt*1000;
+  if(inputLock>0)inputLock-=dt;
+  if(shake>0)shake=Math.max(0,shake-dt*40);
+  // particles
+  for(const p of parts){p.age+=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=260*dt;}
+  parts=parts.filter(p=>p.age<p.life);
+
+  if(state==='clear'){clearTimer-=dt; if(clearTimer<=0)beginNextAfterClear(); return;}
+  if(state!=='play')return;
+
+  // bat keyboard movement
+  const b0=bats[0];
+  if(keys.p1l||keys.arrL)b0.target=(b0.target??b0.x)-b0.speed*dt*1.6;
+  if(keys.p1r||keys.arrR)b0.target=(b0.target??b0.x)+b0.speed*dt*1.6;
+  // move bats toward target
+  for(const b of bats){
+    const half=b.w/2;
+    let tgt=Math.max(b.lo+half,Math.min(b.hi-half,b.target));
+    b.x+=(tgt-b.x)*Math.min(1,dt*18);
+    b.x=Math.max(b.lo+half,Math.min(b.hi-half,b.x));
+    if(b.cool>0)b.cool-=dt;
+    if(b.invul>0)b.invul-=dt;
+    if(b.stun>0)b.stun-=dt;
+  }
+
+  // laser shots
+  for(const s of shots){s.y+=s.vy*dt;}
+  // shots vs bricks & aliens
+  for(const s of shots){
+    if(s.dead)continue;
+    for(const br of bricks){
+      if(!br.alive)continue;
+      if(s.x>=br.x&&s.x<=br.x+br.w&&s.y<=br.y+br.h&&s.y>=br.y){
+        hitBrick(br,1); s.dead=true; break;
+      }
+    }
+    if(s.dead)continue;
+    for(const a of aliens){
+      if(Math.abs(s.x-a.x)<a.r&&Math.abs(s.y-a.y)<a.r){a.hp--;s.dead=true;
+        if(a.hp<=0){burst(a.x,a.y,'#9f6bff',12);score+=150;a.dead=true;} break;}
+    }
+  }
+  shots=shots.filter(s=>!s.dead&&s.y>-10);
+  aliens=aliens.filter(a=>!a.dead);
+
+  // capsules
+  for(const cp of caps){cp.y+=cp.vy*dt;cp.spin+=dt*4;
+    for(const b of bats){
+      if(cp.x> b.x-b.w/2-6 && cp.x<b.x+b.w/2+6 && cp.y+cp.h/2>=b.y-b.h/2 && cp.y-cp.h/2<=b.y+b.h/2){
+        applyCap(cp.t,b); cp.dead=true; score+=50; break;
+      }
+    }
+  }
+  caps=caps.filter(cp=>!cp.dead&&cp.y<FLOOR+20);
+
+  // aliens spawn & move
+  alienTimer-=dt;
+  if(alienTimer<=0 && aliens.length<3 && breakables>4){
+    if(Math.random()<0.6)spawnAlien();
+    alienTimer=6+Math.random()*7;
+  }
+  for(const a of aliens){
+    a.t+=dt*2; a.x+=a.vx*dt+Math.sin(a.t)*20*dt; a.y+=a.vy*dt;
+    if(a.x<WALL+a.r){a.x=WALL+a.r;a.vx=Math.abs(a.vx);}
+    if(a.x>W-WALL-a.r){a.x=W-WALL-a.r;a.vx=-Math.abs(a.vx);}
+    a.drop-=dt;
+    if(a.drop<=0&&a.y<FLOOR-160){a.drop=1.4+Math.random()*1.6;
+      bombs.push({x:a.x,y:a.y+a.r,vy:170,r:6,t:0});}
+    if(a.y>FLOOR+20)a.dead=true;
+  }
+  aliens=aliens.filter(a=>!a.dead);
+
+  // bombs
+  for(const bo of bombs){bo.y+=bo.vy*dt;bo.t+=dt;
+    for(const b of bats){
+      if(b.invul>0)continue;
+      if(bo.x>b.x-b.w/2 && bo.x<b.x+b.w/2 && bo.y+bo.r>=b.y-b.h/2 && bo.y-bo.r<=b.y+b.h/2){
+        bo.dead=true; burst(b.x,b.y,'#ff6b6b',14); loseLife(); break;
+      }
+    }
+  }
+  bombs=bombs.filter(bo=>!bo.dead&&bo.y<FLOOR+20);
+  if(state!=='play')return; // loseLife may have changed state
+
+  // BALLS
+  const N=8, h=dt/N;
+  for(let step=0;step<N;step++){
+    for(const ball of balls){
+      if(ball.stuck){ // follow bat
+        const b=bats[ball.batIndex]||bats[0];
+        ball.x=b.x+ball.offset; ball.y=b.y-b.h/2-ball.r-1; continue;
+      }
+      if(ball.heldCatch){ const b=bats[ball.batIndex]||bats[0];
+        ball.x=b.x+ball.offset; ball.y=b.y-b.h/2-ball.r-1; continue; }
+      ball.x+=ball.vx*h; ball.y+=ball.vy*h;
+      // walls
+      if(ball.x<WALL+ball.r){ball.x=WALL+ball.r;ball.vx=Math.abs(ball.vx);sfx.bounce();}
+      if(ball.x>W-WALL-ball.r){ball.x=W-WALL-ball.r;ball.vx=-Math.abs(ball.vx);sfx.bounce();}
+      if(ball.y<HUD+ball.r){ball.y=HUD+ball.r;ball.vy=Math.abs(ball.vy);sfx.bounce();}
+      // bats
+      for(let bi=0;bi<bats.length;bi++){
+        const b=bats[bi];
+        if(ball.vy>0 && ball.y+ball.r>=b.y-b.h/2 && ball.y-ball.r<=b.y+b.h/2 &&
+           ball.x>=b.x-b.w/2-ball.r && ball.x<=b.x+b.w/2+ball.r){
+          ball.y=b.y-b.h/2-ball.r-0.1;
+          const rel=Math.max(-1,Math.min(1,(ball.x-b.x)/(b.w/2)));
+          const spd=Math.max(baseSpeed(),ball.speed||baseSpeed());
+          const ang=-Math.PI/2 + rel*1.05;
+          ball.vx=Math.cos(ang)*spd; ball.vy=Math.sin(ang)*spd; ball.speed=spd;
+          sfx.bat(); b.flashHit=1;
+          if(b.catch){ball.heldCatch=true;ball.batIndex=bi;ball.offset=ball.x-b.x;}
+          break;
+        }
+      }
+      // aliens deflect ball
+      for(const a of aliens){
+        const dx=ball.x-a.x,dy=ball.y-a.y;
+        if(dx*dx+dy*dy < (a.r+ball.r)*(a.r+ball.r)){
+          a.hp--; if(a.hp<=0){a.dead=true;burst(a.x,a.y,'#9f6bff',12);score+=150;}
+          const d=Math.hypot(dx,dy)||1; ball.vx=dx/d*ball.speed; ball.vy=dy/d*ball.speed;
+          sfx.hard(); break;
+        }
+      }
+      // bricks
+      for(const br of bricks){
+        if(!br.alive)continue;
+        if(ball.x+ball.r>br.x && ball.x-ball.r<br.x+br.w &&
+           ball.y+ball.r>br.y && ball.y-ball.r<br.y+br.h){
+          // resolve axis
+          const overL=ball.x+ball.r-br.x, overR=br.x+br.w-(ball.x-ball.r);
+          const overT=ball.y+ball.r-br.y, overB=br.y+br.h-(ball.y-ball.r);
+          const minX=Math.min(overL,overR), minY=Math.min(overT,overB);
+          const destroyed=hitBrick(br,1);
+          if(ball.smash>0 && (br.kind!=='gold')){ ball.smash--; }
+          else{
+            if(minX<minY){ ball.vx=-ball.vx; ball.x+= overL<overR?-minX:minX; }
+            else{ ball.vy=-ball.vy; ball.y+= overT<overB?-minY:minY; }
+          }
+          break;
+        }
+      }
+      aliens=aliens.filter(a=>!a.dead);
+      // bottom -> lost
+      if(ball.y-ball.r>FLOOR){ball.dead=true;}
+    }
+    balls=balls.filter(b=>!b.dead);
+    if(balls.length===0)break;
+  }
+
+  // all balls lost?
+  if(balls.length===0 && state==='play'){ loseLife(); }
+
+  // level cleared?
+  if(state==='play' && breakables<=0){ nextLevel(); }
+}
+
+function hitBrick(br,dmg){
+  if(!br.alive)return false;
+  br.flash=1;
+  if(br.kind==='gold'){ sfx.hard(); return false; }
+  br.hp-=dmg;
+  if(br.hp<=0){
+    br.alive=false; breakables--;
+    score+= br.kind==='silver'?120:60;
+    burst(br.x+br.w/2,br.y+br.h/2,br.col,10);
+    maybeDropCap(br.x+br.w/2,br.y+br.h/2);
+    sfx.brick();
+    return true;
+  }else{ sfx.hard(); return false; }
+}
+
+/* ---------- render ---------- */
+function text(t,x,y,size,col,align){
+  X.fillStyle=col;X.textAlign=align||'center';X.textBaseline='middle';
+  X.font='bold '+size+'px "Courier New",monospace';X.fillText(t,x,y);
+}
+function roundRect(x,y,w,h,r){X.beginPath();X.moveTo(x+r,y);X.arcTo(x+w,y,x+w,y+h,r);
+  X.arcTo(x+w,y+h,x,y+h,r);X.arcTo(x,y+h,x,y,r);X.arcTo(x,y,x+w,y,r);X.closePath();}
+
+function render(){
+  X.save();
+  if(shake>0)X.translate((Math.random()*2-1)*shake*0.4,(Math.random()*2-1)*shake*0.4);
+  // bg
+  X.fillStyle=COL.bg; X.fillRect(0,0,W,H);
+  // starfield-ish faint dots
+  X.fillStyle='rgba(90,120,220,.06)';
+  for(let i=0;i<40;i++){const sx=(i*97)%W,sy=(i*53+((perf*0.02)|0))%H;X.fillRect(sx,sy,2,2);}
+
+  // walls
+  X.fillStyle=COL.wall; X.fillRect(0,HUD,WALL,H-HUD); X.fillRect(W-WALL,HUD,WALL,H-HUD); X.fillRect(0,HUD,W,6);
+  X.fillStyle=COL.wallHi; X.fillRect(WALL-3,HUD,3,H-HUD); X.fillRect(W-WALL,HUD,3,H-HUD);
+
+  // bricks
+  for(const br of bricks){
+    if(!br.alive)continue;
+    let c=br.col;
+    X.fillStyle=c;
+    X.fillRect(br.x+1.5,br.y+1.5,br.w-3,br.h-3);
+    // top highlight / bottom shade
+    X.fillStyle='rgba(255,255,255,.22)';X.fillRect(br.x+1.5,br.y+1.5,br.w-3,3);
+    X.fillStyle='rgba(0,0,0,.28)';X.fillRect(br.x+1.5,br.y+br.h-4,br.w-3,2.5);
+    if(br.kind==='silver'){ text(String(br.hp),br.x+br.w/2,br.y+br.h/2,11,'#1a2030'); }
+    if(br.kind==='gold'){ X.fillStyle='rgba(255,255,255,.15)';X.fillRect(br.x+1.5,br.y+1.5,br.w-3,br.h-3);}
+    if(br.flash>0){X.fillStyle='rgba(255,255,255,'+(br.flash*0.7)+')';X.fillRect(br.x+1.5,br.y+1.5,br.w-3,br.h-3);br.flash*=0.8;if(br.flash<0.05)br.flash=0;}
+  }
+
+  // capsules
+  for(const cp of caps){
+    X.save();X.translate(cp.x,cp.y);
+    X.fillStyle=cp.col; roundRect(-cp.w/2,-cp.h/2,cp.w,cp.h,7); X.fill();
+    X.fillStyle='rgba(255,255,255,.25)';roundRect(-cp.w/2,-cp.h/2,cp.w,cp.h/2,7);X.fill();
+    text(cp.t,0,0,12,'#0a0e18');
+    X.restore();
+  }
+
+  // aliens
+  for(const a of aliens){
+    X.save();X.translate(a.x,a.y);
+    X.fillStyle='#9f6bff';roundRect(-a.r,-a.r*0.7,a.r*2,a.r*1.4,6);X.fill();
+    X.fillStyle='#c9a6ff';X.fillRect(-a.r,a.r*0.4,a.r*2,3);
+    X.fillStyle='#0a0e18';X.beginPath();X.arc(-5,-2,3,0,TAU);X.arc(5,-2,3,0,TAU);X.fill();
+    X.fillStyle='#fff';X.beginPath();X.arc(-4,-3,1.2,0,TAU);X.arc(6,-3,1.2,0,TAU);X.fill();
+    X.restore();
+  }
+
+  // bombs
+  for(const bo of bombs){
+    X.fillStyle=(Math.floor(bo.t*12)%2)?'#ff5b5b':'#ffd23b';
+    X.beginPath();X.arc(bo.x,bo.y,bo.r,0,TAU);X.fill();
+  }
+
+  // laser shots
+  X.fillStyle='#ff5b5b';
+  for(const s of shots){X.fillRect(s.x-1.5,s.y-8,3,10);}
+
+  // bats
+  for(const b of bats){
+    const blink = b.invul>0 && (Math.floor(perf/90)%2===0);
+    if(!blink){
+      const grd=X.createLinearGradient(0,b.y-b.h/2,0,b.y+b.h/2);
+      grd.addColorStop(0,'#dfe9ff');grd.addColorStop(0.5,b.color);grd.addColorStop(1,'#1b2c55');
+      X.fillStyle=grd; roundRect(b.x-b.w/2,b.y-b.h/2,b.w,b.h,7);X.fill();
+      X.fillStyle='rgba(255,255,255,.5)';X.fillRect(b.x-b.w/2+4,b.y-b.h/2+2,b.w-8,2);
+      if(b.laser){X.fillStyle='#ff5b5b';X.fillRect(b.x-b.w*0.36,b.y-b.h/2-4,4,5);X.fillRect(b.x+b.w*0.36-4,b.y-b.h/2-4,4,5);}
+      if(b.catch){X.fillStyle='#33d15a';X.fillRect(b.x-b.w/2,b.y-b.h/2-2,b.w,2);}
+    }
+    if(b.flashHit>0){b.flashHit*=0.8;if(b.flashHit<0.05)b.flashHit=0;}
+  }
+
+  // balls
+  for(const ball of balls){
+    X.fillStyle=ball.smash>0?'#ff6bd6':'#eaf0ff';
+    X.beginPath();X.arc(ball.x,ball.y,ball.r,0,TAU);X.fill();
+    X.fillStyle='rgba(255,255,255,.6)';X.beginPath();X.arc(ball.x-1.5,ball.y-1.5,2,0,TAU);X.fill();
+  }
+
+  // particles
+  for(const p of parts){const al=1-p.age/p.life;X.fillStyle=p.col;X.globalAlpha=al;X.fillRect(p.x-1.5,p.y-1.5,3,3);}
+  X.globalAlpha=1;
+
+  // HUD
+  X.fillStyle='#060912';X.fillRect(0,0,W,HUD);
+  X.fillStyle='#141d3a';X.fillRect(0,HUD-2,W,2);
+  text(T('score'),58,13,10,'#5f78c8','left'); text(String(score).padStart(6,'0'),58,30,18,'#eaf0ff','left');
+  text(T('hi'),W-14,13,10,'#5f78c8','right'); text(String(Math.max(hi,score)).padStart(6,'0'),W-14,30,16,'#ffd23b','right');
+  text('L'+(level+1),W/2,13,11,'#5f78c8');
+  // lives as little bats
+  for(let i=0;i<Math.min(lives,7);i++){X.fillStyle='#4a9dff';roundRect(W/2-30+i*17,26,13,5,2.5);X.fill();}
+  if(lives>7)text('x'+lives,W/2+95,30,11,'#4a9dff');
+
+  X.restore();
+
+  // overlays
+  if(state==='title')drawTitle();
+  else if(state==='ready')drawCenter(T('ready'),null);
+  else if(state==='clear'){drawBig(T('clear'),'#33e0e0');}
+  else if(state==='over'){drawGameOver();}
+  else if(state==='win'){drawWin();}
+  else if(state==='pause'){drawBig(T('paused'),'#ffd23b');}
+}
+
+function dim(){X.fillStyle='rgba(2,3,10,.72)';X.fillRect(0,0,W,H);}
+function drawTitle(){
+  dim();
+  text(T('title'),W/2,150,64,'#4a9dff');
+  text(T('title'),W/2,148,64,'#eaf0ff');
+  text(T('sub'),W/2,196,16,'#7f98d8');
+  text(T('mode'),W/2,318,11,'#5f78c8');
+  if(Math.floor(perf/500)%2===0)text(T('start'),W/2,400,18,'#ffd23b');
+  text('◾ '+langLine(),W/2,H-70,11,'#5f78c8');
+  text('© hommage à BATTY (Elite, 1987)',W/2,H-40,10,'#3d4a78');
+}
+function langLine(){return LANGS.map(l=>l===lang?'['+l.toUpperCase()+']':l).join(' ');}
+function drawCenter(t){dim();text(t,W/2,H/2,18,'#ffd23b');}
+function drawBig(t,col){
+  X.fillStyle='rgba(2,3,10,.5)';X.fillRect(0,H/2-60,W,120);
+  text(t,W/2,H/2,34,col);
+}
+function drawGameOver(){
+  dim();
+  text(T('over'),W/2,H/2-40,40,'#ff3b3b');
+  text(T('score')+': '+score,W/2,H/2+10,18,'#eaf0ff');
+  text(T('hi')+': '+Math.max(hi,score),W/2,H/2+40,16,'#ffd23b');
+  if(Math.floor(perf/500)%2===0)text(T('again'),W/2,H/2+100,16,'#7f98d8');
+}
+function drawWin(){
+  dim();
+  text(T('win'),W/2,H/2-50,44,'#33d15a');
+  text(T('winsub'),W/2,H/2,16,'#eaf0ff');
+  text(T('score')+': '+score,W/2,H/2+34,18,'#ffd23b');
+  if(Math.floor(perf/500)%2===0)text(T('again'),W/2,H/2+100,16,'#7f98d8');
+}
+
+/* ---------- main loop ---------- */
+function frame(ts){
+  requestAnimationFrame(frame);
+  if(!last)last=ts;
+  let dt=(ts-last)/1000; last=ts;
+  if(dt>0.05)dt=0.05;
+  update(dt);
+  render();
+}
+requestAnimationFrame(frame);
+
+/* ---------- test hook ---------- */
+window.__game={
+  startGame,
+  launchAll, nextLevel, action,
+  get state(){return state;},
+  get score(){return score;},
+  get lives(){return lives;},
+  get level(){return level;},
+  get breakables(){return breakables;},
+  get balls(){return balls;},
+  get bats(){return bats;},
+  get caps(){return caps;},
+  get aliens(){return aliens;},
+  spawnAlien, applyCap:(t)=>applyCap(t,primaryBat()),
+  clearAllBreakables:()=>{bricks.forEach(b=>{if(b.kind!=='gold'&&b.alive){b.alive=false;}});breakables=0;}
+};
+</script>
+</body>
+</html>
