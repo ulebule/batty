@@ -68,35 +68,35 @@ const STR={
       over:'KONEC IGRE',win:'ČESTITKE!',winsub:'Premagal si vse nivoje',
       again:'TAPNI za novo igro',ready:'TAPNI za izstrelitev žoge',
       clear:'NIVO OČIŠČEN',p1w:'IGRALEC 1',p2w:'IGRALEC 2',paused:'PAVZA',
-      name:'IME:',best:'NAJBOLJŠI',newrec:'NOV REKORD!',ph:'vpiši ime',enter:'vpiši ime za start'},
+      name:'IME:',best:'NAJBOLJŠI',newrec:'NOV REKORD!',ph:'vpiši ime',enter:'vpiši ime za start',change:'tapni na polje za zamenjavo imena'},
   en:{title:'BATTY',sub:'BLOCK BREAKER',start:'TAP or ENTER to start',
       p1:'1 PLAYER',p2:'2 PLAYERS (co-op)',mode:'ENTER=start · M=sound · L=lang · P=pause',
       score:'SCORE',hi:'HI',lives:'LIVES',level:'LEVEL',
       over:'GAME OVER',win:'YOU WIN!',winsub:'All levels cleared',
       again:'TAP to play again',ready:'TAP to launch the ball',
       clear:'LEVEL CLEAR',p1w:'PLAYER 1',p2w:'PLAYER 2',paused:'PAUSED',
-      name:'NAME:',best:'HIGH SCORES',newrec:'NEW RECORD!',ph:'enter name',enter:'enter a name to start'},
+      name:'NAME:',best:'HIGH SCORES',newrec:'NEW RECORD!',ph:'enter name',enter:'enter a name to start',change:'tap the field to change name'},
   de:{title:'BATTY',sub:'STEIN-BRECHER',start:'TAP oder ENTER zum Start',
       p1:'1 SPIELER',p2:'2 SPIELER (co-op)',mode:'ENTER=Start · M=Ton · L=Sprache · P=Pause',
       score:'PUNKTE',hi:'BEST',lives:'LEBEN',level:'LEVEL',
       over:'SPIEL AUS',win:'GEWONNEN!',winsub:'Alle Level geschafft',
       again:'TAP für neues Spiel',ready:'TAP zum Abschuss',
       clear:'LEVEL FREI',p1w:'SPIELER 1',p2w:'SPIELER 2',paused:'PAUSE',
-      name:'NAME:',best:'BESTENLISTE',newrec:'NEUER REKORD!',ph:'Name eingeben',enter:'Name eingeben zum Start'},
+      name:'NAME:',best:'BESTENLISTE',newrec:'NEUER REKORD!',ph:'Name eingeben',enter:'Name eingeben zum Start',change:'Feld tippen zum Ändern'},
   it:{title:'BATTY',sub:'ROMPI BLOCCHI',start:'TAP o ENTER per iniziare',
       p1:'1 GIOCATORE',p2:'2 GIOCATORI (co-op)',mode:'ENTER=start · M=audio · L=lingua · P=pausa',
       score:'PUNTI',hi:'MAX',lives:'VITE',level:'LIVELLO',
       over:'GAME OVER',win:'HAI VINTO!',winsub:'Tutti i livelli completati',
       again:'TAP per rigiocare',ready:'TAP per lanciare',
       clear:'LIVELLO PULITO',p1w:'GIOCATORE 1',p2w:'GIOCATORE 2',paused:'PAUSA',
-      name:'NOME:',best:'MIGLIORI',newrec:'NUOVO RECORD!',ph:'inserisci nome',enter:'inserisci un nome'},
+      name:'NOME:',best:'MIGLIORI',newrec:'NUOVO RECORD!',ph:'inserisci nome',enter:'inserisci un nome',change:'tocca il campo per cambiare'},
   fr:{title:'BATTY',sub:'CASSE-BRIQUES',start:'TAP ou ENTER pour jouer',
       p1:'1 JOUEUR',p2:'2 JOUEURS (co-op)',mode:'ENTER=start · M=son · L=langue · P=pause',
       score:'SCORE',hi:'REC',lives:'VIES',level:'NIVEAU',
       over:'PARTIE FINIE',win:'GAGNÉ !',winsub:'Tous les niveaux finis',
       again:'TAP pour rejouer',ready:'TAP pour lancer',
       clear:'NIVEAU FINI',p1w:'JOUEUR 1',p2w:'JOUEUR 2',paused:'PAUSE',
-      name:'NOM:',best:'MEILLEURS',newrec:'NOUVEAU RECORD!',ph:'entre ton nom',enter:'entre un nom'}
+      name:'NOM:',best:'MEILLEURS',newrec:'NOUVEAU RECORD!',ph:'entre ton nom',enter:'entre un nom',change:'touche le champ pour changer'}
 };
 function detectLang(){try{const l=(navigator.language||'en').slice(0,2).toLowerCase();
   return LANGS.includes(l)?l:'en';}catch(e){return 'en';}}
@@ -416,7 +416,7 @@ const nick=document.getElementById('nick');
 nick.value=currentNick;
 function commitNick(){ currentNick=(nick.value||'').trim().slice(0,10);
   if(currentNick)safeLS('batty_nick',currentNick); return currentNick; }
-nick.addEventListener('focus',()=>overlayOpen=true);
+nick.addEventListener('focus',()=>{overlayOpen=true;try{nick.select();}catch(e){}}); // select all → easy to overwrite
 nick.addEventListener('blur',()=>{overlayOpen=false;commitNick();});
 nick.addEventListener('keydown',e=>{ e.stopPropagation();
   if(e.key==='Enter'){ e.preventDefault(); if(commitNick()){nick.blur();ac();startGame();} } });
@@ -761,14 +761,15 @@ function drawTitle(){
   text(T('title'),W/2,130,60,'#eaf0ff');
   text(T('sub'),W/2,174,15,'#7f98d8');
   nick.placeholder=T('ph');
-  text(T('name'),W/2,236,13,'#5f78c8');
+  text(T('name'),W/2,230,13,'#5f78c8');
   // HTML nick input floats here (~y291)
+  text(T('change'),W/2,336,10,'#6f83c0');
   if(Math.floor(perf/500)%2===0){
-    text(currentNick?T('start'):T('enter'),W/2,352,16,'#ffd23b');
+    text(currentNick?T('start'):T('enter'),W/2,366,16,'#ffd23b');
   }
-  text(T('mode'),W/2,388,10,'#5f78c8');
-  drawBoard(424,5);
-  text('◾ '+langLine(),W/2,H-48,10,'#5f78c8');
+  text(T('mode'),W/2,398,10,'#5f78c8');
+  drawBoard(430,5);
+  text('◾ '+langLine(),W/2,H-44,10,'#5f78c8');
 }
 function langLine(){return LANGS.map(l=>l===lang?'['+l.toUpperCase()+']':l).join(' ');}
 function drawCenter(t){dim();text(t,W/2,H/2,18,'#ffd23b');}
