@@ -24,11 +24,22 @@
   #hintbar{position:absolute;left:0;right:0;bottom:6px;z-index:6;pointer-events:none;
     text-align:center;font-size:11px;color:rgba(150,180,255,.5);letter-spacing:1px;}
   @media (hover:hover) and (pointer:fine){#hintbar{display:none;}}
+  /* nick entry — a REAL input so mobile keyboards + Š Č Ž work */
+  #nick{position:absolute;left:50%;top:45.5%;transform:translate(-50%,-50%);
+    width:62%;max-width:300px;padding:9px 12px;box-sizing:border-box;text-align:center;
+    font-family:"Courier New",monospace;font-size:5vh;max-height:60px;font-weight:bold;
+    color:#eaf0ff;background:rgba(18,26,58,.92);border:2px solid #4a5da8;border-radius:8px;
+    outline:none;letter-spacing:2px;text-transform:none;z-index:6;display:none;
+    caret-color:#ffd23b;}
+  #nick:focus{border-color:#ffd23b;box-shadow:0 0 16px rgba(255,210,59,.35);}
+  #nick::placeholder{color:#5f78c8;font-weight:normal;letter-spacing:1px;}
 </style>
 </head>
 <body>
 <div id="wrap"><div id="stage">
   <canvas id="c" width="480" height="640"></canvas>
+  <input id="nick" type="text" maxlength="10" autocomplete="off" autocorrect="off"
+         autocapitalize="off" spellcheck="false" enterkeyhint="go" aria-label="nick">
   <div id="crt"></div>
   <div id="hintbar">DRSI za premik &middot; TAPNI za izstrelitev / laser</div>
 </div></div>
@@ -56,31 +67,36 @@ const STR={
       score:'TOČKE',hi:'REKORD',lives:'ŽIVLJENJA',level:'NIVO',
       over:'KONEC IGRE',win:'ČESTITKE!',winsub:'Premagal si vse nivoje',
       again:'TAPNI za novo igro',ready:'TAPNI za izstrelitev žoge',
-      clear:'NIVO OČIŠČEN',p1w:'IGRALEC 1',p2w:'IGRALEC 2',paused:'PAVZA'},
+      clear:'NIVO OČIŠČEN',p1w:'IGRALEC 1',p2w:'IGRALEC 2',paused:'PAVZA',
+      name:'IME:',best:'NAJBOLJŠI',newrec:'NOV REKORD!',ph:'vpiši ime',enter:'vpiši ime za start'},
   en:{title:'BATTY',sub:'BLOCK BREAKER',start:'TAP or ENTER to start',
       p1:'1 PLAYER',p2:'2 PLAYERS (co-op)',mode:'ENTER=start · M=sound · L=lang · P=pause',
       score:'SCORE',hi:'HI',lives:'LIVES',level:'LEVEL',
       over:'GAME OVER',win:'YOU WIN!',winsub:'All levels cleared',
       again:'TAP to play again',ready:'TAP to launch the ball',
-      clear:'LEVEL CLEAR',p1w:'PLAYER 1',p2w:'PLAYER 2',paused:'PAUSED'},
+      clear:'LEVEL CLEAR',p1w:'PLAYER 1',p2w:'PLAYER 2',paused:'PAUSED',
+      name:'NAME:',best:'HIGH SCORES',newrec:'NEW RECORD!',ph:'enter name',enter:'enter a name to start'},
   de:{title:'BATTY',sub:'STEIN-BRECHER',start:'TAP oder ENTER zum Start',
       p1:'1 SPIELER',p2:'2 SPIELER (co-op)',mode:'ENTER=Start · M=Ton · L=Sprache · P=Pause',
       score:'PUNKTE',hi:'BEST',lives:'LEBEN',level:'LEVEL',
       over:'SPIEL AUS',win:'GEWONNEN!',winsub:'Alle Level geschafft',
       again:'TAP für neues Spiel',ready:'TAP zum Abschuss',
-      clear:'LEVEL FREI',p1w:'SPIELER 1',p2w:'SPIELER 2',paused:'PAUSE'},
+      clear:'LEVEL FREI',p1w:'SPIELER 1',p2w:'SPIELER 2',paused:'PAUSE',
+      name:'NAME:',best:'BESTENLISTE',newrec:'NEUER REKORD!',ph:'Name eingeben',enter:'Name eingeben zum Start'},
   it:{title:'BATTY',sub:'ROMPI BLOCCHI',start:'TAP o ENTER per iniziare',
       p1:'1 GIOCATORE',p2:'2 GIOCATORI (co-op)',mode:'ENTER=start · M=audio · L=lingua · P=pausa',
       score:'PUNTI',hi:'MAX',lives:'VITE',level:'LIVELLO',
       over:'GAME OVER',win:'HAI VINTO!',winsub:'Tutti i livelli completati',
       again:'TAP per rigiocare',ready:'TAP per lanciare',
-      clear:'LIVELLO PULITO',p1w:'GIOCATORE 1',p2w:'GIOCATORE 2',paused:'PAUSA'},
+      clear:'LIVELLO PULITO',p1w:'GIOCATORE 1',p2w:'GIOCATORE 2',paused:'PAUSA',
+      name:'NOME:',best:'MIGLIORI',newrec:'NUOVO RECORD!',ph:'inserisci nome',enter:'inserisci un nome'},
   fr:{title:'BATTY',sub:'CASSE-BRIQUES',start:'TAP ou ENTER pour jouer',
       p1:'1 JOUEUR',p2:'2 JOUEURS (co-op)',mode:'ENTER=start · M=son · L=langue · P=pause',
       score:'SCORE',hi:'REC',lives:'VIES',level:'NIVEAU',
       over:'PARTIE FINIE',win:'GAGNÉ !',winsub:'Tous les niveaux finis',
       again:'TAP pour rejouer',ready:'TAP pour lancer',
-      clear:'NIVEAU FINI',p1w:'JOUEUR 1',p2w:'JOUEUR 2',paused:'PAUSE'}
+      clear:'NIVEAU FINI',p1w:'JOUEUR 1',p2w:'JOUEUR 2',paused:'PAUSE',
+      name:'NOM:',best:'MEILLEURS',newrec:'NOUVEAU RECORD!',ph:'entre ton nom',enter:'entre un nom'}
 };
 function detectLang(){try{const l=(navigator.language||'en').slice(0,2).toLowerCase();
   return LANGS.includes(l)?l:'en';}catch(e){return 'en';}}
@@ -91,6 +107,20 @@ function T(k){return (STR[lang]&&STR[lang][k])||STR.en[k]||k;}
 function safeLS(k,v){try{if(v===undefined)return localStorage.getItem(k);
   localStorage.setItem(k,v);}catch(e){return null;}}
 let hi=parseInt(safeLS('batty_hi')||'0',10)||0;
+
+let currentNick=(safeLS('batty_nick')||'').slice(0,10);
+function loadScores(){try{const a=JSON.parse(safeLS('batty_scores')||'[]');
+  return Array.isArray(a)?a.filter(e=>e&&typeof e.s==='number'):[];}catch(e){return [];}}
+let scores=loadScores();
+let lastRank=null;                 // rank of the score just added (for highlight)
+function saveScores(){safeLS('batty_scores',JSON.stringify(scores.slice(0,10)));}
+function addScore(nm,sc){
+  if(!sc||sc<=0){lastRank=null;return;}
+  const e={n:(nm||'???').slice(0,10)||'???',s:sc};
+  scores.push(e); scores.sort((a,b)=>b.s-a.s);
+  const idx=scores.indexOf(e); scores=scores.slice(0,10); saveScores();
+  lastRank=(idx>=0&&idx<10)?idx:null;
+}
 
 /* ---------- audio ---------- */
 let AC=null, muted=false;
@@ -223,12 +253,13 @@ function startGame(){
   level=0; score=0; lives=3; state='play';
   winnerText='';
   resetBats(); buildLevel(); serveBall();
-  flashMsg=0; inputLock=0.3; sfx.start();
+  flashMsg=0; inputLock=0.3; lastRank=null; nick.blur(); sfx.start();
 }
 function nextLevel(){
   level++;
   if(level>=LEVELS.length){ state='win'; sfx.clear();
     if(score>hi){hi=score;safeLS('batty_hi',String(hi));}
+    addScore(currentNick,score);
     inputLock=0.8; return;}
   state='clear'; clearTimer=1.6; sfx.clear();
 }
@@ -241,6 +272,7 @@ function loseLife(){
   if(lives<=0){
     state='over';
     if(score>hi){hi=score;safeLS('batty_hi',String(hi));}
+    addScore(currentNick,score);
     inputLock=0.8;
   }else{
     // reset bats power, serve again
@@ -341,8 +373,8 @@ function fireLasers(){
 /* ---------- primary action (tap / space) ---------- */
 function action(){
   if(inputLock>0)return;
-  if(state==='title'){startGame();return;}
-  if(state==='over'||state==='win'){state='title';inputLock=0.3;return;}
+  if(state==='title'){ if(!commitNick()){nick.focus();return;} startGame(); return; }
+  if(state==='over'||state==='win'){state='title';lastRank=null;inputLock=0.3;return;}
   if(state==='play'){
     let did=launchAll();
     // release caught balls
@@ -355,7 +387,9 @@ function action(){
 
 /* ---------- input ---------- */
 const keys={};
+let overlayOpen=false;   // true while the nick input has focus (typing)
 addEventListener('keydown',e=>{
+  if(overlayOpen)return;                 // let the name field keep its keys
   const k=e.key;
   if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',' '].includes(k))e.preventDefault();
   if(k==='a'||k==='A')keys.p1l=true;
@@ -377,6 +411,18 @@ addEventListener('keyup',e=>{
   else if(k==='ArrowRight')keys.arrR=false;
 });
 
+/* nick entry (real input over the canvas) */
+const nick=document.getElementById('nick');
+nick.value=currentNick;
+function commitNick(){ currentNick=(nick.value||'').trim().slice(0,10);
+  if(currentNick)safeLS('batty_nick',currentNick); return currentNick; }
+nick.addEventListener('focus',()=>overlayOpen=true);
+nick.addEventListener('blur',()=>{overlayOpen=false;commitNick();});
+nick.addEventListener('keydown',e=>{ e.stopPropagation();
+  if(e.key==='Enter'){ e.preventDefault(); if(commitNick()){nick.blur();ac();startGame();} } });
+nick.addEventListener('keyup',e=>e.stopPropagation());
+nick.addEventListener('input',()=>commitNick());
+
 /* pointer drag control */
 let pointers={};
 function canvasX(clientX){const r=stage.getBoundingClientRect();return (clientX-r.left)/r.width*W;}
@@ -387,14 +433,14 @@ function pointerMove(id,cx){
   const p=pointers[id];
   if(p){ if(Math.abs(x-p.downX)>10)p.moved++; p.x=x; }   // keep down/downX intact
 }
-stage.addEventListener('touchstart',e=>{e.preventDefault();ac();
+stage.addEventListener('touchstart',e=>{if(e.target===nick)return;e.preventDefault();ac();
   for(const t of e.changedTouches){const x=canvasX(t.clientX);
     pointers[t.identifier]={x,downX:x,moved:0,down:perf};moveBatTo(x);}
 },{passive:false});
-stage.addEventListener('touchmove',e=>{e.preventDefault();
+stage.addEventListener('touchmove',e=>{if(e.target===nick)return;e.preventDefault();
   for(const t of e.changedTouches)pointerMove(t.identifier,t.clientX);
 },{passive:false});
-stage.addEventListener('touchend',e=>{e.preventDefault();ac();
+stage.addEventListener('touchend',e=>{if(e.target===nick)return;e.preventDefault();ac();
   let acted=false;
   for(const t of e.changedTouches){const p=pointers[t.identifier];
     // a short touch that didn't wander is a tap → launch / start / fire
@@ -404,7 +450,7 @@ stage.addEventListener('touchend',e=>{e.preventDefault();ac();
 stage.addEventListener('touchcancel',e=>{for(const t of e.changedTouches)delete pointers[t.identifier];},{passive:false});
 
 let mouseDown=false, mDownAt=0, mMoved=0;
-stage.addEventListener('mousedown',e=>{ac();mouseDown=true;mDownAt=perf;mMoved=0;pointerMove('m',e.clientX);});
+stage.addEventListener('mousedown',e=>{if(e.target===nick)return;ac();mouseDown=true;mDownAt=perf;mMoved=0;pointerMove('m',e.clientX);});
 stage.addEventListener('mousemove',e=>{if(mouseDown){mMoved++;pointerMove('m',e.clientX);}});
 addEventListener('mouseup',e=>{if(mouseDown){mouseDown=false;if((perf-mDownAt)<250&&mMoved<4)action();}});
 
@@ -590,6 +636,9 @@ function roundRect(x,y,w,h,r){X.beginPath();X.moveTo(x+r,y);X.arcTo(x+w,y,x+w,y+
   X.arcTo(x+w,y+h,x,y+h,r);X.arcTo(x,y+h,x,y,r);X.arcTo(x,y,x+w,y,r);X.closePath();}
 
 function render(){
+  // show the name field only on the title screen
+  const disp=(state==='title')?'block':'none';
+  if(nick.style.display!==disp)nick.style.display=disp;
   X.save();
   if(shake>0)X.translate((Math.random()*2-1)*shake*0.4,(Math.random()*2-1)*shake*0.4);
   // bg
@@ -692,15 +741,34 @@ function render(){
 }
 
 function dim(){X.fillStyle='rgba(2,3,10,.72)';X.fillRect(0,0,W,H);}
+function drawBoard(cy,limit){
+  const list=scores.slice(0,limit);
+  text(T('best'),W/2,cy,13,'#5f78c8');
+  if(!list.length){ text('— — — — —',W/2,cy+24,13,'#3d4a78'); return; }
+  const bx=W/2-108, sx=W/2+108;
+  for(let i=0;i<list.length;i++){
+    const e=list[i], yy=cy+26+i*21;
+    const hl=(state!=='title' && lastRank===i);
+    const col=hl?'#ffd23b':(i===0?'#eaf0ff':'#9fb0e0');
+    text((i+1)+'.',bx-18,yy,13,col,'left');
+    text(e.n,bx+4,yy,13,col,'left');
+    text(String(e.s),sx,yy,13,col,'right');
+  }
+}
 function drawTitle(){
   dim();
-  text(T('title'),W/2,150,64,'#4a9dff');
-  text(T('title'),W/2,148,64,'#eaf0ff');
-  text(T('sub'),W/2,196,16,'#7f98d8');
-  text(T('mode'),W/2,318,11,'#5f78c8');
-  if(Math.floor(perf/500)%2===0)text(T('start'),W/2,400,18,'#ffd23b');
-  text('◾ '+langLine(),W/2,H-70,11,'#5f78c8');
-  text('© hommage à BATTY (Elite, 1987)',W/2,H-40,10,'#3d4a78');
+  text(T('title'),W/2,132,60,'#4a9dff');
+  text(T('title'),W/2,130,60,'#eaf0ff');
+  text(T('sub'),W/2,174,15,'#7f98d8');
+  nick.placeholder=T('ph');
+  text(T('name'),W/2,236,13,'#5f78c8');
+  // HTML nick input floats here (~y291)
+  if(Math.floor(perf/500)%2===0){
+    text(currentNick?T('start'):T('enter'),W/2,352,16,'#ffd23b');
+  }
+  text(T('mode'),W/2,388,10,'#5f78c8');
+  drawBoard(424,5);
+  text('◾ '+langLine(),W/2,H-48,10,'#5f78c8');
 }
 function langLine(){return LANGS.map(l=>l===lang?'['+l.toUpperCase()+']':l).join(' ');}
 function drawCenter(t){dim();text(t,W/2,H/2,18,'#ffd23b');}
@@ -710,17 +778,20 @@ function drawBig(t,col){
 }
 function drawGameOver(){
   dim();
-  text(T('over'),W/2,H/2-40,40,'#ff3b3b');
-  text(T('score')+': '+score,W/2,H/2+10,18,'#eaf0ff');
-  text(T('hi')+': '+Math.max(hi,score),W/2,H/2+40,16,'#ffd23b');
-  if(Math.floor(perf/500)%2===0)text(T('again'),W/2,H/2+100,16,'#7f98d8');
+  text(T('over'),W/2,138,38,'#ff3b3b');
+  text((currentNick||'???')+' — '+score,W/2,182,18,'#eaf0ff');
+  if(lastRank===0 && Math.floor(perf/300)%2===0)text(T('newrec'),W/2,212,16,'#ffd23b');
+  drawBoard(256,6);
+  if(Math.floor(perf/500)%2===0)text(T('again'),W/2,H-46,16,'#7f98d8');
 }
 function drawWin(){
   dim();
-  text(T('win'),W/2,H/2-50,44,'#33d15a');
-  text(T('winsub'),W/2,H/2,16,'#eaf0ff');
-  text(T('score')+': '+score,W/2,H/2+34,18,'#ffd23b');
-  if(Math.floor(perf/500)%2===0)text(T('again'),W/2,H/2+100,16,'#7f98d8');
+  text(T('win'),W/2,120,42,'#33d15a');
+  text(T('winsub'),W/2,162,15,'#eaf0ff');
+  text((currentNick||'???')+' — '+score,W/2,192,18,'#ffd23b');
+  if(lastRank===0 && Math.floor(perf/300)%2===0)text(T('newrec'),W/2,220,16,'#ffd23b');
+  drawBoard(258,6);
+  if(Math.floor(perf/500)%2===0)text(T('again'),W/2,H-46,16,'#7f98d8');
 }
 
 /* ---------- main loop ---------- */
@@ -747,6 +818,8 @@ window.__game={
   get bats(){return bats;},
   get caps(){return caps;},
   get aliens(){return aliens;},
+  get scores(){return scores;}, get nick(){return currentNick;},
+  setNick:(v)=>{currentNick=v;nick.value=v;}, addScore,
   spawnAlien, applyCap:(t)=>applyCap(t,primaryBat()),
   clearAllBreakables:()=>{bricks.forEach(b=>{if(b.kind!=='gold'&&b.alive){b.alive=false;}});breakables=0;}
 };
