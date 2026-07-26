@@ -68,35 +68,35 @@ const STR={
       over:'KONEC IGRE',win:'ČESTITKE!',winsub:'Premagal si vse nivoje',
       again:'TAPNI za novo igro',ready:'TAPNI za izstrelitev žoge',
       clear:'NIVO OČIŠČEN',p1w:'IGRALEC 1',p2w:'IGRALEC 2',paused:'PAVZA',
-      name:'IME:',best:'NAJBOLJŠI',newrec:'NOV REKORD!',ph:'vpiši ime',enter:'vpiši ime za start',change:'tapni na polje za zamenjavo imena'},
+      name:'IME:',best:'NAJBOLJŠI',newrec:'NOV REKORD!',ph:'vpiši ime',enter:'vpiši ime za start',change:'tapni na polje za zamenjavo imena',loading:'nalagam...',offline:'brez povezave — lokalni rezultati'},
   en:{title:'BATTY',sub:'BLOCK BREAKER',start:'TAP or ENTER to start',
       p1:'1 PLAYER',p2:'2 PLAYERS (co-op)',mode:'ENTER=start · M=sound · L=lang · P=pause',
       score:'SCORE',hi:'HI',lives:'LIVES',level:'LEVEL',
       over:'GAME OVER',win:'YOU WIN!',winsub:'All levels cleared',
       again:'TAP to play again',ready:'TAP to launch the ball',
       clear:'LEVEL CLEAR',p1w:'PLAYER 1',p2w:'PLAYER 2',paused:'PAUSED',
-      name:'NAME:',best:'HIGH SCORES',newrec:'NEW RECORD!',ph:'enter name',enter:'enter a name to start',change:'tap the field to change name'},
+      name:'NAME:',best:'HIGH SCORES',newrec:'NEW RECORD!',ph:'enter name',enter:'enter a name to start',change:'tap the field to change name',loading:'loading...',offline:'offline — local scores'},
   de:{title:'BATTY',sub:'STEIN-BRECHER',start:'TAP oder ENTER zum Start',
       p1:'1 SPIELER',p2:'2 SPIELER (co-op)',mode:'ENTER=Start · M=Ton · L=Sprache · P=Pause',
       score:'PUNKTE',hi:'BEST',lives:'LEBEN',level:'LEVEL',
       over:'SPIEL AUS',win:'GEWONNEN!',winsub:'Alle Level geschafft',
       again:'TAP für neues Spiel',ready:'TAP zum Abschuss',
       clear:'LEVEL FREI',p1w:'SPIELER 1',p2w:'SPIELER 2',paused:'PAUSE',
-      name:'NAME:',best:'BESTENLISTE',newrec:'NEUER REKORD!',ph:'Name eingeben',enter:'Name eingeben zum Start',change:'Feld tippen zum Ändern'},
+      name:'NAME:',best:'BESTENLISTE',newrec:'NEUER REKORD!',ph:'Name eingeben',enter:'Name eingeben zum Start',change:'Feld tippen zum Ändern',loading:'lädt...',offline:'offline — lokale Ergebnisse'},
   it:{title:'BATTY',sub:'ROMPI BLOCCHI',start:'TAP o ENTER per iniziare',
       p1:'1 GIOCATORE',p2:'2 GIOCATORI (co-op)',mode:'ENTER=start · M=audio · L=lingua · P=pausa',
       score:'PUNTI',hi:'MAX',lives:'VITE',level:'LIVELLO',
       over:'GAME OVER',win:'HAI VINTO!',winsub:'Tutti i livelli completati',
       again:'TAP per rigiocare',ready:'TAP per lanciare',
       clear:'LIVELLO PULITO',p1w:'GIOCATORE 1',p2w:'GIOCATORE 2',paused:'PAUSA',
-      name:'NOME:',best:'MIGLIORI',newrec:'NUOVO RECORD!',ph:'inserisci nome',enter:'inserisci un nome',change:'tocca il campo per cambiare'},
+      name:'NOME:',best:'MIGLIORI',newrec:'NUOVO RECORD!',ph:'inserisci nome',enter:'inserisci un nome',change:'tocca il campo per cambiare',loading:'caricamento...',offline:'offline — punteggi locali'},
   fr:{title:'BATTY',sub:'CASSE-BRIQUES',start:'TAP ou ENTER pour jouer',
       p1:'1 JOUEUR',p2:'2 JOUEURS (co-op)',mode:'ENTER=start · M=son · L=langue · P=pause',
       score:'SCORE',hi:'REC',lives:'VIES',level:'NIVEAU',
       over:'PARTIE FINIE',win:'GAGNÉ !',winsub:'Tous les niveaux finis',
       again:'TAP pour rejouer',ready:'TAP pour lancer',
       clear:'NIVEAU FINI',p1w:'JOUEUR 1',p2w:'JOUEUR 2',paused:'PAUSE',
-      name:'NOM:',best:'MEILLEURS',newrec:'NOUVEAU RECORD!',ph:'entre ton nom',enter:'entre un nom',change:'touche le champ pour changer'}
+      name:'NOM:',best:'MEILLEURS',newrec:'NOUVEAU RECORD!',ph:'entre ton nom',enter:'entre un nom',change:'touche le champ pour changer',loading:'chargement...',offline:'hors ligne — scores locaux'}
 };
 function detectLang(){try{const l=(navigator.language||'en').slice(0,2).toLowerCase();
   return LANGS.includes(l)?l:'en';}catch(e){return 'en';}}
@@ -120,6 +120,49 @@ function addScore(nm,sc){
   scores.push(e); scores.sort((a,b)=>b.s-a.s);
   const idx=scores.indexOf(e); scores=scores.slice(0,10); saveScores();
   lastRank=(idx>=0&&idx<10)?idx:null;
+}
+
+/* ---------- online leaderboard (Firebase Firestore REST) ---------- */
+const FB_PROJECT='batty-60ebf';
+const FB_KEY='AIzaSyBEB8PZHUoGdBS1olmqi_viTwKsxcb7y3o';
+const FB_COL='batty_scores';
+const FB_BASE='https://firestore.googleapis.com/v1/projects/'+FB_PROJECT+'/databases/(default)/documents';
+const ONLINE=(FB_PROJECT.indexOf('__')!==0);   // true once real config is in place
+let boardRows=null, boardState=ONLINE?'idle':'off', lastScore=0;
+
+async function loadBoard(){
+  if(!ONLINE){boardState='off';return;}
+  boardState='loading';
+  try{
+    const q={structuredQuery:{from:[{collectionId:FB_COL}],
+      orderBy:[{field:{fieldPath:'score'},direction:'DESCENDING'}],limit:10}};
+    const r=await fetch(FB_BASE+':runQuery?key='+FB_KEY,{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(q),cache:'no-store'});
+    if(!r.ok)throw 0;
+    const d=await r.json();
+    boardRows=d.filter(x=>x.document).map(x=>{const f=x.document.fields||{};
+      return {n:((f.name&&f.name.stringValue)||'?').slice(0,10),
+              s:parseInt((f.score&&f.score.integerValue)||0,10)||0};});
+    boardState='ok';
+  }catch(e){boardState='error';boardRows=null;}
+}
+async function submitOnline(nm,sc,lv){
+  if(!ONLINE)return false;
+  try{
+    const body={fields:{
+      name:{stringValue:(nm||'???').slice(0,10)},
+      score:{integerValue:String(sc|0)},
+      level:{integerValue:String(lv|0)},
+      created:{timestampValue:new Date().toISOString()}}};
+    const r=await fetch(FB_BASE+'/'+FB_COL+'?key='+FB_KEY,{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    return r.ok;
+  }catch(e){return false;}
+}
+function submitScore(){
+  lastScore=score;
+  if(!ONLINE)return;
+  submitOnline(currentNick,score,level+1).then(ok=>{ if(ok)loadBoard(); else boardState='error'; });
 }
 
 /* ---------- audio ---------- */
@@ -259,7 +302,7 @@ function nextLevel(){
   level++;
   if(level>=LEVELS.length){ state='win'; sfx.clear();
     if(score>hi){hi=score;safeLS('batty_hi',String(hi));}
-    addScore(currentNick,score);
+    addScore(currentNick,score); submitScore();
     inputLock=0.8; return;}
   state='clear'; clearTimer=1.6; sfx.clear();
 }
@@ -272,7 +315,7 @@ function loseLife(){
   if(lives<=0){
     state='over';
     if(score>hi){hi=score;safeLS('batty_hi',String(hi));}
-    addScore(currentNick,score);
+    addScore(currentNick,score); submitScore();
     inputLock=0.8;
   }else{
     // reset bats power, serve again
@@ -742,18 +785,21 @@ function render(){
 
 function dim(){X.fillStyle='rgba(2,3,10,.72)';X.fillRect(0,0,W,H);}
 function drawBoard(cy,limit){
-  const list=scores.slice(0,limit);
   text(T('best'),W/2,cy,13,'#5f78c8');
-  if(!list.length){ text('— — — — —',W/2,cy+24,13,'#3d4a78'); return; }
+  if(boardState==='loading'){ text(T('loading'),W/2,cy+26,12,'#9fb6ff'); return; }
+  const online=(boardState==='ok'&&boardRows);
+  const list=(online?boardRows:scores).slice(0,limit);
+  if(!list.length){ text('— — — — —',W/2,cy+26,13,'#3d4a78'); }
   const bx=W/2-108, sx=W/2+108;
   for(let i=0;i<list.length;i++){
     const e=list[i], yy=cy+26+i*21;
-    const hl=(state!=='title' && lastRank===i);
+    const hl=(state!=='title' && e.n===currentNick && e.s===lastScore);
     const col=hl?'#ffd23b':(i===0?'#eaf0ff':'#9fb0e0');
     text((i+1)+'.',bx-18,yy,13,col,'left');
     text(e.n,bx+4,yy,13,col,'left');
     text(String(e.s),sx,yy,13,col,'right');
   }
+  if(!online && boardState==='error'){ text(T('offline'),W/2,cy+30+list.length*21,10,'#ff9f6f'); }
 }
 function drawTitle(){
   dim();
@@ -805,6 +851,7 @@ function frame(ts){
   render();
 }
 requestAnimationFrame(frame);
+loadBoard();   // fetch the online board once at start (no-op until config is set)
 
 /* ---------- test hook ---------- */
 window.__game={
@@ -821,6 +868,7 @@ window.__game={
   get aliens(){return aliens;},
   get scores(){return scores;}, get nick(){return currentNick;},
   setNick:(v)=>{currentNick=v;nick.value=v;}, addScore,
+  loadBoard, submitOnline, get boardState(){return boardState;}, get boardRows(){return boardRows;},
   spawnAlien, applyCap:(t)=>applyCap(t,primaryBat()),
   clearAllBreakables:()=>{bricks.forEach(b=>{if(b.kind!=='gold'&&b.alive){b.alive=false;}});breakables=0;}
 };
