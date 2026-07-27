@@ -106,8 +106,12 @@ const STR={
       clear:'NIVEAU FINI',p1w:'JOUEUR 1',p2w:'JOUEUR 2',paused:'PAUSE',
       name:'NOM:',best:'MEILLEURS',newrec:'NOUVEAU RECORD!',ph:'entre ton nom',enter:'entre un nom',change:'touche le champ pour changer',loading:'chargement...',offline:'hors ligne — scores locaux'}
 };
-function detectLang(){try{const l=(navigator.language||'en').slice(0,2).toLowerCase();
-  return LANGS.includes(l)?l:'en';}catch(e){return 'en';}}
+function detectLang(){try{
+  const saved=localStorage.getItem('batty_lang');
+  if(saved&&LANGS.includes(saved))return saved;
+  const list=(navigator.languages&&navigator.languages.length)?navigator.languages:[navigator.language||'en'];
+  for(const raw of list){const l=String(raw).slice(0,2).toLowerCase(); if(LANGS.includes(l))return l;}
+  return 'en';}catch(e){return 'en';}}
 let lang=detectLang();
 function T(k){return (STR[lang]&&STR[lang][k])||STR.en[k]||k;}
 
@@ -452,7 +456,7 @@ addEventListener('keydown',e=>{
   else if(k===' '||k==='ArrowUp'){ac();action();}
   else if(k==='p'||k==='P'){ if(state==='play')state='pause'; else if(state==='pause')state='play'; }
   else if(k==='m'||k==='M'){muted=!muted;}
-  else if(k==='l'||k==='L'){lang=LANGS[(LANGS.indexOf(lang)+1)%LANGS.length];}
+  else if(k==='l'||k==='L'){cycleLang();}
 });
 addEventListener('keyup',e=>{
   const k=e.key;
@@ -491,6 +495,22 @@ addEventListener('resize',fitNick);
 /* pointer drag control */
 let pointers={};
 function canvasX(clientX){const r=stage.getBoundingClientRect();return (clientX-r.left)/r.width*W;}
+function canvasY(clientY){const r=stage.getBoundingClientRect();return (clientY-r.top)/r.height*H;}
+/* The language row is drawn on the canvas at H-44, so on a phone there was no
+   way to change language at all — only the L key. Treat a finger-sized band
+   around that row, on the title screen only, as a tap on the language row. */
+function cycleLang(){
+  lang=LANGS[(LANGS.indexOf(lang)+1)%LANGS.length];
+  try{ localStorage.setItem('batty_lang',lang); }catch(e){}
+  try{ document.documentElement.lang=lang; nick.placeholder=T('ph'); _fitKey=''; fitNick(); }catch(e){}
+}
+function langTap(clientY){
+  if(state!=='title')return false;
+  const y=canvasY(clientY);
+  if(y<H-72||y>H-16)return false;
+  cycleLang();
+  return true;
+}
 function moveBatTo(x){ if(bats[0])bats[0].target=x; }
 function pointerMove(id,cx){
   const x=canvasX(cx);
@@ -509,7 +529,9 @@ stage.addEventListener('touchend',e=>{if(e.target===nick)return;e.preventDefault
   let acted=false;
   for(const t of e.changedTouches){const p=pointers[t.identifier];
     // a short touch that didn't wander is a tap → launch / start / fire
-    if(!acted && p && (perf-p.down)<350 && p.moved<3){ action(); acted=true; }
+    if(!acted && p && (perf-p.down)<350 && p.moved<3){
+      if(!langTap(t.clientY)) action();
+      acted=true; }
     delete pointers[t.identifier];}
 },{passive:false});
 stage.addEventListener('touchcancel',e=>{for(const t of e.changedTouches)delete pointers[t.identifier];},{passive:false});
@@ -517,7 +539,8 @@ stage.addEventListener('touchcancel',e=>{for(const t of e.changedTouches)delete 
 let mouseDown=false, mDownAt=0, mMoved=0;
 stage.addEventListener('mousedown',e=>{if(e.target===nick)return;ac();mouseDown=true;mDownAt=perf;mMoved=0;pointerMove('m',e.clientX);});
 stage.addEventListener('mousemove',e=>{if(mouseDown){mMoved++;pointerMove('m',e.clientX);}});
-addEventListener('mouseup',e=>{if(mouseDown){mouseDown=false;if((perf-mDownAt)<250&&mMoved<4)action();}});
+addEventListener('mouseup',e=>{if(mouseDown){mouseDown=false;
+  if((perf-mDownAt)<250&&mMoved<4){ if(!langTap(e.clientY)) action(); }}});
 
 /* ---------- update ---------- */
 function update(dt){

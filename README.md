@@ -16,7 +16,9 @@ A block breaker in the browser, a tribute to **Batty** (Elite, ZX Spectrum,
 | `M` | sound on / off |
 | `L` | language |
 
-On a touch screen you slide a finger to move the bat and tap to launch or fire.
+On a touch screen you slide a finger to move the bat and tap to launch or
+fire. On the title screen, tapping the row of language codes along the bottom
+cycles the language — the `L` key does the same, and the choice is remembered.
 
 ## The game
 
